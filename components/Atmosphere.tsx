@@ -6,16 +6,6 @@ interface AtmosphereProps {
 
 export const Atmosphere: React.FC<AtmosphereProps> = ({ flashTrigger }) => {
   const [flicker, setFlicker] = useState(false);
-  const [isFlashing, setIsFlashing] = useState(false);
-
-  // Handle the external Flash Reveal trigger
-  useEffect(() => {
-    if (flashTrigger) {
-      setIsFlashing(true);
-      const timeout = setTimeout(() => setIsFlashing(false), 200); // Quick flash (200ms)
-      return () => clearTimeout(timeout);
-    }
-  }, [flashTrigger]);
 
   // Mouse Tracking
   useEffect(() => {
@@ -27,49 +17,62 @@ export const Atmosphere: React.FC<AtmosphereProps> = ({ flashTrigger }) => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // Random ambiance flicker (broken bulb effect)
+  // Ambiance Flicker (Faulty Lightbulb logic)
   useEffect(() => {
     const triggerFlicker = () => {
-      if (Math.random() > 0.7) {
+      if (Math.random() > 0.8) {
         setFlicker(true);
-        setTimeout(() => setFlicker(false), 100 + Math.random() * 200);
+        // Rapid strobe effect
+        let count = 0;
+        const strobe = setInterval(() => {
+          setFlicker(prev => !prev);
+          count++;
+          if (count > 6) {
+            clearInterval(strobe);
+            setFlicker(false);
+          }
+        }, 50);
       }
-      setTimeout(triggerFlicker, Math.random() * 5000 + 2000);
+      setTimeout(triggerFlicker, Math.random() * 8000 + 4000);
     };
     triggerFlicker();
   }, []);
 
   return (
-    <div className={`pointer-events-none fixed inset-0 z-0 overflow-hidden select-none ${isFlashing ? 'flash-active' : ''}`}>
+    <div className={`pointer-events-none fixed inset-0 z-20 ${flashTrigger ? 'flash-active' : ''}`}>
       
-      {/* 1. The Darkness & Flashlight Mask */}
-      <div className="absolute inset-0 darkness-layer transition-colors duration-1000" />
-      
-      {/* 2. The Light Beam Center (Add glow) */}
-      <div className="absolute inset-0 light-beam" />
+      {/* 
+         The Darkness Mask: 
+         This element uses the radial-gradient in CSS to be transparent at cursor 
+         and black everywhere else. It sits at Z-index 10 (defined in CSS).
+      */}
+      <div className="darkness-mask" />
 
-      {/* 3. Floating Dust Particles */}
-      <div className="absolute inset-0 opacity-20 z-10">
-        {[...Array(20)].map((_, i) => (
+      {/* Floating Dust Particles */}
+      <div className="absolute inset-0 z-30 opacity-30 mix-blend-screen overflow-hidden">
+        {[...Array(15)].map((_, i) => (
           <div 
             key={i} 
-            className="dust-particle"
+            className="absolute bg-slate-300 rounded-full blur-[1px]"
             style={{
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
-              width: `${Math.random() * 3 + 1}px`,
-              height: `${Math.random() * 3 + 1}px`,
-              animationDelay: `${Math.random() * 10}s`,
-              animationDuration: `${10 + Math.random() * 20}s`
+              width: `${Math.random() * 4 + 1}px`,
+              height: `${Math.random() * 4 + 1}px`,
+              opacity: Math.random() * 0.5 + 0.1,
+              animation: `float-dust ${10 + Math.random() * 20}s infinite linear`
             }}
           />
         ))}
       </div>
 
-      {/* 4. Ambiance Flicker (Blackout) */}
+      {/* Full Blackout Flicker (Simulates lightbulb dying completely) */}
       <div 
-        className={`absolute inset-0 bg-black z-30 transition-opacity duration-50 ${flicker ? 'opacity-80' : 'opacity-0'}`}
+        className={`absolute inset-0 bg-black z-40 transition-opacity duration-75 ${flicker ? 'opacity-95' : 'opacity-0'}`}
       />
+      
+      {/* Vignette Overlay for extra claustrophobia */}
+      <div className="absolute inset-0 z-20 bg-[radial-gradient(circle,transparent_40%,black_100%)] opacity-80 pointer-events-none"></div>
     </div>
   );
 };

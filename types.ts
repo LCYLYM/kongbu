@@ -1,10 +1,11 @@
 export interface GameState {
   history: ChatHistoryItem[];
-  currentImage?: string; // Base64 or URL
+  currentImage?: string; 
   imageLoading: boolean;
   isGameOver: boolean;
   gameStarted: boolean;
   loadingText: boolean;
+  error?: string | null;
 }
 
 export interface ChatHistoryItem {
@@ -12,19 +13,19 @@ export interface ChatHistoryItem {
   text: string;
 }
 
-// Structure expected from Gemini JSON response
 export interface StoryResponse {
   narrative: string;
   choices: string[];
-  visualPrompt: string; // Description for the image generator
+  visualPrompt: string; 
   isGameOver: boolean;
-  flashReveal: boolean; // Triggers the jump scare/lightning effect
+  flashReveal: boolean; 
   mood: 'eerie' | 'tense' | 'sad' | 'calm' | 'terrifying';
 }
 
-export enum AudioMood {
-  None,
-  Rain,
-  Wind,
-  Heartbeat
+export type LLMProvider = 'gemini' | 'openai';
+
+export interface GameSettings {
+  provider: LLMProvider;
+  apiKey?: string;
+  baseUrl?: string; // For OpenAI proxies
 }
