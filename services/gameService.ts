@@ -26,7 +26,7 @@ const SYSTEM_INSTRUCTION = `
 {
   "narrative": "剧情文本，约100字。尽量精简有力。",
   "choices": ["选项1", "选项2"],
-  "visualPrompt": "High grain, black and white, lo-fi, security camera style, low visibility...",
+  "visualPrompt": "Chinese folklore horror, faded and desaturated, soft low contrast, washed-out dark reds and grays, paper talismans, ancestral shrine, subtle grain, vintage film, not pure black, misty eerie atmosphere",
   "isGameOver": boolean,
   "flashReveal": boolean,
   "inventoryUpdates": { "add": [], "remove": [] },
@@ -307,7 +307,7 @@ export class GameService {
   }
 
   async generateImage(prompt: string): Promise<string | null> {
-    const aesthetic = "scary, horror, grainy, noisy, black and white, lo-fi, security camera style, low visibility, dark atmosphere, ";
+    const aesthetic = "Chinese folklore horror, faded, desaturated, soft low contrast, washed-out dark reds and grays, subtle film grain, paper talismans, ancestral shrine details, not pure black, muted dark grays and browns, misty eerie atmosphere, lo-fi, security camera style, ";
     const finalPrompt = aesthetic + prompt;
     
     // 1. Calculate Key
