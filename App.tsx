@@ -33,7 +33,8 @@ const App: React.FC = () => {
     model: 'gemini-2.5-flash',
     imageModel: 'gemini-2.5-flash-image',
     apiKey: '',
-    baseUrl: ''
+    baseUrl: '',
+    useSharedCache: true // Default Enabled
   });
 
   // Load settings on mount

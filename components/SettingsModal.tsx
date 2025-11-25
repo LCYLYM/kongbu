@@ -29,7 +29,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = React.memo(({ show, o
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md">
-      <div className="w-full max-w-md p-8 border border-red-900/50 bg-stone-950 text-stone-300 relative shadow-[0_0_30px_rgba(50,0,0,0.3)]">
+      <div className="w-full max-w-md p-8 border border-red-900/50 bg-stone-950 text-stone-300 relative shadow-[0_0_30px_rgba(50,0,0,0.3)] max-h-[90vh] overflow-y-auto">
         <h2 className="text-2xl font-calligraphy text-red-800 mb-6 border-b border-red-900/30 pb-2">天机设定 (Settings)</h2>
         
         <div className="space-y-6 font-serif">
@@ -88,7 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = React.memo(({ show, o
             />
           </div>
            
-           {/* Base URL (Available for both now) */}
+           {/* Base URL */}
             <div>
               <label className="block text-sm mb-2 text-stone-500 tracking-widest">Base URL (Optional)</label>
               <input 
@@ -98,6 +98,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = React.memo(({ show, o
                 placeholder={settings.provider === 'gemini' ? "https://generativelanguage.googleapis.com" : "https://api.openai.com/v1"}
                 className="w-full bg-black border border-stone-800 p-3 focus:border-red-900 focus:shadow-[0_0_10px_rgba(100,0,0,0.3)] outline-none text-stone-300 placeholder-stone-800 font-mono text-sm transition-all"
               />
+            </div>
+
+            {/* Shared Cache Toggle */}
+            <div className="pt-4 border-t border-stone-900">
+              <div className="flex items-center justify-between">
+                <div>
+                   <label className="block text-sm text-stone-300 tracking-widest">共享缓存 (Shared Cache)</label>
+                   <p className="text-xs text-stone-600 mt-1">
+                      启用后优先使用服务器缓存，减少 API 消耗。
+                   </p>
+                </div>
+                <div 
+                  className={`relative w-12 h-6 rounded-full cursor-pointer transition-colors duration-300 ${settings.useSharedCache !== false ? 'bg-red-900/60 border border-red-500' : 'bg-stone-900 border border-stone-700'}`}
+                  onClick={() => onUpdateSettings({ ...settings, useSharedCache: settings.useSharedCache === false ? true : false })}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-md transition-transform duration-300 ${settings.useSharedCache !== false ? 'left-[calc(100%-1.2rem)] bg-red-200' : 'left-1 bg-stone-500'}`} />
+                </div>
+              </div>
             </div>
         </div>
 

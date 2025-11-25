@@ -40,4 +40,5 @@ export interface GameSettings {
   imageModel: string; // New field for image generation model
   apiKey?: string;
   baseUrl?: string; // For OpenAI proxies
+  useSharedCache: boolean; // Boolean toggle for server-side caching
 }

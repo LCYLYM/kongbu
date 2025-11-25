@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { StoryResponse, ChatHistoryItem, GameSettings } from "../types";
+import { CacheService } from "./cacheService";
 
 const SYSTEM_INSTRUCTION = `
 你是一位深谙**中式民俗恐怖 (Chinese Folklore Horror)** 的文字游戏主理人。
@@ -64,17 +65,21 @@ const safeParse = (text: string): StoryResponse => {
 };
 
 const STORAGE_KEY_SETTINGS = "nether_chronicles_settings";
-const STORAGE_KEY_IMG_CACHE = "nether_chronicles_img_cache";
 
 export class GameService {
   private settings: GameSettings;
   private geminiClient: GoogleGenAI | null = null;
+  private cacheService: CacheService;
   
-  // Memory Cache for Text (Current Session)
-  private preloadCache: Map<string, Promise<StoryResponse>> = new Map();
+  // In-memory Promise Deduping (prevents double-fetching the exact same request in the same session)
+  private pendingRequests: Map<string, Promise<StoryResponse>> = new Map();
+  private pendingImages: Map<string, Promise<string | null>> = new Map();
 
   constructor(settings: GameSettings) {
     this.settings = settings;
+    // Default to true if undefined in legacy settings
+    const cacheEnabled = settings.useSharedCache !== false; 
+    this.cacheService = new CacheService(cacheEnabled);
     this.initClient();
   }
 
@@ -98,44 +103,10 @@ export class GameService {
     }
   }
 
-  // Helper for Image Cache (localStorage)
-  private getCachedImage(prompt: string): string | null {
-    try {
-      const cache = JSON.parse(localStorage.getItem(STORAGE_KEY_IMG_CACHE) || "{}");
-      // Simple hash-like key from prompt to avoid massive keys
-      const key = btoa(prompt.substring(0, 50) + prompt.length).substring(0, 20);
-      return cache[key] || null;
-    } catch (e) { return null; }
-  }
-
-  private saveCachedImage(prompt: string, base64: string) {
-    try {
-      const cache = JSON.parse(localStorage.getItem(STORAGE_KEY_IMG_CACHE) || "{}");
-      const key = btoa(prompt.substring(0, 50) + prompt.length).substring(0, 20);
-      
-      // Limit cache size: if too big, clear half
-      const keys = Object.keys(cache);
-      if (keys.length > 20) {
-         delete cache[keys[0]]; // Remove oldest (rough LRU)
-      }
-      
-      cache[key] = base64;
-      localStorage.setItem(STORAGE_KEY_IMG_CACHE, JSON.stringify(cache));
-    } catch (e) { 
-      // Likely quota exceeded, clear cache and try again once
-      try {
-        localStorage.removeItem(STORAGE_KEY_IMG_CACHE); 
-      } catch(err) {}
-    }
-  }
-
   public updateSettings(newSettings: GameSettings) {
-    const modelChanged = this.settings.model !== newSettings.model || this.settings.provider !== newSettings.provider;
     this.settings = newSettings;
+    this.cacheService.setEnabled(newSettings.useSharedCache);
     this.initClient();
-    if (modelChanged) {
-      this.clearCache();
-    }
     this.saveSettingsToStorage();
   }
 
@@ -154,18 +125,6 @@ export class GameService {
     }
   }
 
-  private clearCache() {
-    this.preloadCache.clear();
-    console.log("[GameService] Cache cleared due to settings change.");
-  }
-
-  private getCacheKey(history: ChatHistoryItem[], choice: string, inventory: string[]): string {
-    // Include inventory in cache key because having an item might change the outcome
-    const lastMsg = history.length > 0 ? history[history.length - 1].text.slice(-20) : 'START';
-    const invHash = inventory.sort().join(',');
-    return `${history.length}:${lastMsg}:${choice}:${invHash}`;
-  }
-
   // --- Core Logic ---
 
   /**
@@ -173,34 +132,48 @@ export class GameService {
    * Checks cache first, then API.
    */
   async continueStory(history: ChatHistoryItem[], choice: string, inventory: string[]): Promise<StoryResponse> {
-    const cacheKey = this.getCacheKey(history, choice, inventory);
+    // 1. Calculate Cache Key (Hash of State)
+    const cacheKey = await this.cacheService.generateKey(history, choice, inventory);
 
-    if (this.preloadCache.has(cacheKey)) {
-      console.log(`[GameService] Cache HIT for choice: "${choice}"`);
-      return this.preloadCache.get(cacheKey)!;
+    // 2. Check Pending Requests (In-memory dedupe)
+    if (this.pendingRequests.has(cacheKey)) {
+        return this.pendingRequests.get(cacheKey)!;
     }
 
-    console.log(`[GameService] Cache MISS for choice: "${choice}". Fetching...`);
-    
-    // Create the promise and store it immediately in cache (Request Deduping)
-    const promise = this.fetchStory(history, choice, inventory);
-    this.preloadCache.set(cacheKey, promise);
+    // 3. Define the async fetch operation
+    const fetchOperation = async (): Promise<StoryResponse> => {
+        try {
+            // A. Check Permanent Cache (L1 LocalStorage & L2 Server)
+            const cachedResponse = await this.cacheService.getStory(cacheKey);
+            if (cachedResponse) {
+                return cachedResponse;
+            }
 
-    try {
-      return await promise;
-    } catch (e) {
-      // If failed, remove from cache so user can retry
-      this.preloadCache.delete(cacheKey);
-      throw e;
-    }
+            // B. Cache Miss -> Call API
+            console.log(`[GameService] Cache MISS. Fetching from LLM...`);
+            const response = await this.fetchStory(history, choice, inventory);
+            
+            // C. Save to Cache (Only if successful)
+            // We do this in background (don't await) to speed up UI
+            this.cacheService.setStory(cacheKey, response);
+            
+            return response;
+        } finally {
+            this.pendingRequests.delete(cacheKey);
+        }
+    };
+
+    // 4. Store promise and execute
+    const promise = fetchOperation();
+    this.pendingRequests.set(cacheKey, promise);
+    return promise;
   }
 
   /**
    * Triggers background loading for all provided choices.
-   * Call this when the UI is idle (e.g., after text finished typing).
    */
   preloadChoices(history: ChatHistoryItem[], choices: string[], inventory: string[]) {
-    console.log(`[GameService] Preloading ${choices.length} choices with inventory: [${inventory.join(', ')}]`);
+    console.log(`[GameService] Preloading ${choices.length} choices...`);
     choices.forEach(async (choice) => {
         try {
             // 1. Preload Text
@@ -208,15 +181,12 @@ export class GameService {
             
             // 2. Preload Image (Chain the request)
             if (response.visualPrompt) {
-               console.log(`[GameService] Preloading image for choice "${choice}"`);
-               // This will hit the cache or generate and save to cache
-               // We don't await this because we don't want to block the thread, just kick it off
                this.generateImage(response.visualPrompt).catch(err => {
                    console.warn("Background image gen failed", err);
                });
             }
         } catch (err) {
-            console.warn(`[GameService] Preload failed for choice "${choice}"`, err);
+            // Silent fail for preloads
         }
     });
   }
@@ -246,14 +216,9 @@ export class GameService {
   }
 
   async startNewGame(): Promise<StoryResponse> {
-    this.clearCache(); // New game, new cache
-    const prompt = "游戏开始。背景：中元节深夜，我独自回到了荒废已久的老宅。大门虚掩。请开始第一幕。";
-    
-    if (this.settings.provider === 'openai') {
-      return this.callOpenAI([{ role: 'user', content: prompt }]);
-    } else {
-      return this.callGemini([{ role: 'user', parts: [{ text: prompt }] }]);
-    }
+    // We treat "START_GAME" as a special choice
+    const emptyInventory: string[] = [];
+    return this.continueStory([], "START_GAME", emptyInventory);
   }
 
   // --- API Providers ---
@@ -261,6 +226,21 @@ export class GameService {
   private async callGemini(contents: any[]): Promise<StoryResponse> {
     if (!this.geminiClient) throw new Error("Gemini Client not initialized");
     
+    // For "START_GAME", we need to inject the system prompt as the first user message if history is empty? 
+    // Actually the logic in continueStory passes history. 
+    // If it's START_GAME, history is empty.
+    
+    // Check if it's start
+    const isStart = contents.length === 1 && contents[0].parts[0].text === "START_GAME";
+    const promptText = isStart 
+        ? "游戏开始。背景：中元节深夜，我独自回到了荒废已久的老宅。大门虚掩。请开始第一幕。"
+        : contents[contents.length-1].parts[0].text;
+
+    // Replace the simple "START_GAME" text with actual prompt if it's the start
+    if (isStart) {
+        contents[0].parts[0].text = promptText;
+    }
+
     const response = await this.geminiClient.models.generateContent({
       model: this.settings.model || "gemini-2.5-flash",
       contents: contents,
@@ -298,6 +278,11 @@ export class GameService {
     
     if (!key) throw new Error("OpenAI API Key required");
 
+    // Handle Start Game
+    if (messages.length === 1 && messages[0].content.includes("START_GAME")) {
+        messages[0].content = "游戏开始。背景：中元节深夜，我独自回到了荒废已久的老宅。大门虚掩。请开始第一幕。";
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -322,78 +307,80 @@ export class GameService {
   }
 
   async generateImage(prompt: string): Promise<string | null> {
-    // 1. Check LocalStorage Cache
-    const cached = this.getCachedImage(prompt);
-    if (cached) {
-        console.log("[GameService] Image Cache HIT");
-        return cached;
-    }
-
     const aesthetic = "scary, horror, grainy, noisy, black and white, lo-fi, security camera style, low visibility, dark atmosphere, ";
     const finalPrompt = aesthetic + prompt;
-    let imageUrl: string | null = null;
     
-    // 2. Generate
-    if (this.geminiClient && this.settings.provider === 'gemini') {
-      try {
-        const response = await this.geminiClient.models.generateContent({
-           model: this.settings.imageModel || "gemini-2.5-flash-image",
-           contents: { parts: [{ text: finalPrompt }] }
-        });
-        
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-              imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-            }
-        }
-      } catch (e) {
-        console.error("Gemini image generation failed", e);
-      }
-    } else if (this.settings.provider === 'openai' && this.settings.apiKey) {
+    // 1. Calculate Key
+    const cacheKey = await this.cacheService.generateImageKey(finalPrompt);
+
+    // 2. Check Pending
+    if (this.pendingImages.has(cacheKey)) {
+        return this.pendingImages.get(cacheKey)!;
+    }
+
+    const fetchOp = async (): Promise<string | null> => {
         try {
-            // Support Custom Base URL for OpenAI Images
-            const baseUrl = this.settings.baseUrl || "https://api.openai.com/v1";
-            
-            // NOTE: Use CHAT completions endpoint for image generation (as per user's proxy/provider requirements)
-            // instead of standard /images/generations.
-            const resp = await fetch(`${baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${this.settings.apiKey}`, 
-                    'Content-Type': 'application/json' 
-                },
-                body: JSON.stringify({ 
-                    model: this.settings.imageModel || "gpt-4o-image", // Default to a chat-image capable model
-                    messages: [{ role: "user", content: finalPrompt }],
-                    stream: false
-                })
-            });
+             // A. Check L1/L2 Cache
+             const cached = await this.cacheService.getImage(cacheKey);
+             if (cached) {
+                 return cached;
+             }
+             
+             // B. Generate
+             console.log(`[GameService] Generating Image for key: ${cacheKey.substring(0,8)}...`);
+             let imageUrl: string | null = null;
+             
+             if (this.geminiClient && this.settings.provider === 'gemini') {
+                 // Gemini
+                 const response = await this.geminiClient.models.generateContent({
+                     model: this.settings.imageModel || "gemini-2.5-flash-image",
+                     contents: { parts: [{ text: finalPrompt }] }
+                 });
+                 for (const part of response.candidates?.[0]?.content?.parts || []) {
+                    if (part.inlineData) {
+                        imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+                    }
+                 }
+             } else if (this.settings.provider === 'openai' && this.settings.apiKey) {
+                 // OpenAI Chat Image
+                 const baseUrl = this.settings.baseUrl || "https://api.openai.com/v1";
+                 const resp = await fetch(`${baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${this.settings.apiKey}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify({ 
+                        model: this.settings.imageModel || "gpt-4o-image",
+                        messages: [{ role: "user", content: finalPrompt }],
+                        stream: false
+                    })
+                 });
+                 const data = await resp.json();
+                 if (data.choices?.length > 0) {
+                     const content = data.choices[0].message.content;
+                     const linkMatch = content.match(/!\[.*?\]\((.*?)\)/) || content.match(/(https?:\/\/[^\s]+)/);
+                     if (linkMatch) imageUrl = linkMatch[1];
+                     else if (content.length < 5000) imageUrl = content.trim(); 
+                 }
+             }
 
-            const data = await resp.json();
-            
-            if (data.choices && data.choices.length > 0) {
-                const content = data.choices[0].message.content;
-                // Try to extract URL from markdown like ![img](url) or just raw URL
-                const linkMatch = content.match(/!\[.*?\]\((.*?)\)/) || content.match(/(https?:\/\/[^\s]+)/);
-                if (linkMatch) {
-                    imageUrl = linkMatch[1];
-                } else {
-                    // Fallback: if short enough, assume it's the raw string (url or base64)
-                    if (content.length < 5000) imageUrl = content.trim(); 
-                }
-            } else {
-                console.error("OpenAI image response error", data);
-            }
-        } catch (e) { 
-            console.error("OpenAI image failed", e); 
+             // C. Save Cache
+             if (imageUrl) {
+                 this.cacheService.setImage(cacheKey, imageUrl);
+             }
+             return imageUrl;
+
+        } catch (e) {
+            console.error("Image Gen Failed", e);
+            return null;
+        } finally {
+            this.pendingImages.delete(cacheKey);
         }
-    }
+    };
 
-    // 3. Save to Cache if successful
-    if (imageUrl) {
-        this.saveCachedImage(prompt, imageUrl);
-    }
-
-    return imageUrl;
+    const promise = fetchOp();
+    this.pendingImages.set(cacheKey, promise);
+    return promise;
   }
 }
