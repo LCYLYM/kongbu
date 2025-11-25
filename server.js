@@ -1,12 +1,18 @@
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = 8000;
-const CACHE_FILE = 'cache_dump.json';
+const CACHE_FILE = path.join(__dirname, 'cache_dump.json');
 const MAX_CACHE_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB
 const SAVE_INTERVAL_MS = 60000; // Save to disk every 1 minute
+
+// Directory that contains built frontend assets
+const PUBLIC_DIR = path.join(__dirname, 'dist');
 
 // In-memory cache
 let cache = new Map();
@@ -124,9 +130,9 @@ const server = http.createServer((req, res) => {
     }
 
     // --- Static File Serving ---
-    
-    let filePath = '.' + url.pathname;
-    if (filePath === './') filePath = './index.html';
+
+    const requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
+    const filePath = path.join(PUBLIC_DIR, requestPath);
 
     const extname = path.extname(filePath);
     const contentType = MIME_TYPES[extname] || 'application/octet-stream';
@@ -134,8 +140,9 @@ const server = http.createServer((req, res) => {
     fs.readFile(filePath, (error, content) => {
         if (error) {
             if (error.code === 'ENOENT') {
-                // Fallback to index.html for SPA routing (though not really needed for this app)
-                fs.readFile('./index.html', (err, indexContent) => {
+                // Fallback to dist/index.html for SPA routing
+                const indexPath = path.join(PUBLIC_DIR, 'index.html');
+                fs.readFile(indexPath, (err, indexContent) => {
                     if (err) {
                         res.writeHead(500);
                         res.end('Error loading index.html');
