@@ -41,8 +41,8 @@
           circle var(--flashlight-size) at var(--cursor-x) var(--cursor-y),
           transparent 0%,
           transparent 20%, 
-          rgba(0,0,0,0.8) 50%,
-          rgba(0,0,0,1) 70%
+          rgba(0,0,0,0.85) 50%,
+          rgba(0,0,0,1) 75%
         );
         z-index: 20; /* Sits above image, below text */
         pointer-events: none;
@@ -92,20 +92,24 @@
 
       /* --- UI Elements --- */
 
-      /* Removed opaque background/backdrop-filter to show image behind */
-      .paper-torn {
-        background: transparent;
+      /* Updated Narrative Container - More readable, better framing */
+      .narrative-container {
         position: relative;
-        padding: 2rem;
-        /* Subtle red border hint */
-        border-left: 1px solid rgba(138, 0, 0, 0.3);
+        padding: 3rem;
+        background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(20,5,5,0.6) 50%, rgba(0,0,0,0) 100%);
+        border-top: 1px solid rgba(138, 0, 0, 0.2);
+        border-bottom: 1px solid rgba(138, 0, 0, 0.2);
+        box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        backdrop-filter: blur(2px);
       }
       
       /* Ghostly Text Style */
       .text-ghost {
-        color: rgba(214, 211, 209, 0.85); /* stone-300 with opacity */
-        text-shadow: 0 0 8px rgba(0, 0, 0, 0.8), 0 0 15px rgba(0,0,0,1);
+        color: rgba(220, 220, 215, 0.85); /* Slightly brighter for readability */
+        text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0,0,0,1);
         font-weight: 300;
+        letter-spacing: 0.15em; /* Wide spacing for atmosphere */
+        line-height: 2em;
       }
 
       /* The blood red accent char */
@@ -114,24 +118,10 @@
         text-shadow: 0 0 5px rgba(220, 20, 60, 0.6), 0 0 10px rgba(0,0,0,1);
       }
 
-      .writing-vertical {
-        writing-mode: vertical-rl;
-        text-orientation: upright;
-        letter-spacing: 0.3em;
-        line-height: 2.5em;
-      }
-      
-      @media (max-width: 768px) {
-        .writing-vertical {
-          writing-mode: horizontal-tb;
-          line-height: 2em;
-        }
-      }
-
       /* Button Hover Gloom */
       .btn-gloom {
         transition: all 0.5s ease;
-        background: linear-gradient(90deg, transparent 0%, rgba(20,0,0,0.6) 50%, transparent 100%);
+        background: linear-gradient(90deg, transparent 0%, rgba(30,10,10,0.4) 50%, transparent 100%);
         background-size: 200% 100%;
         background-position: 100% 0;
       }
@@ -139,6 +129,7 @@
         background-position: 0 0;
         color: #ef4444; /* red-500 */
         text-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+        border-color: rgba(127, 29, 29, 0.8);
       }
 
     </style>
